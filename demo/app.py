@@ -7,12 +7,9 @@ from datetime import datetime
 from google import genai  # Google GenAI SDK
 
 # =====================================================================
-# 🌟 【API Key 快速填入區】你可以直接把金鑰貼在下方對應的引號裡！
+# 🌟 【API Key 快速填入區】請保持空白，改至網頁側邊欄或 Secrets 輸入以策安全！
 # =====================================================================
-# ⬇️ 貼上你的 FRED API Key (例如: "abc123xyz...")
 HARDCODED_FRED_KEY = "" 
-
-# ⬇️ 貼上你的 Google AI Studio / Gemini API Key (例如: "AIzaSy...")
 HARDCODED_GEMINI_KEY = ""
 # =====================================================================
 
@@ -24,7 +21,7 @@ st.title("🌐 全球總體經濟與金融指標即時儀表板")
 # 側邊欄：設定與金鑰讀取邏輯
 st.sidebar.header("⚙️ 設定與金鑰")
 
-# 1. 取得 FRED Key (優先順序：程式上方寫死 > Streamlit Secrets > 側邊欄輸入)
+# 1. 取得 FRED Key
 if HARDCODED_FRED_KEY:
     fred_key = HARDCODED_FRED_KEY
     st.sidebar.success("已讀取程式碼中設定的 FRED Key！")
@@ -34,7 +31,7 @@ elif "FRED_API_KEY" in st.secrets:
 else:
     fred_key = st.sidebar.text_input("請輸入 FRED API Key:", type="password")
 
-# 2. 取得 Gemini Key (優先順序：程式上方寫死 > Streamlit Secrets > 側邊欄輸入)
+# 2. 取得 Gemini Key
 if HARDCODED_GEMINI_KEY:
     gemini_key = HARDCODED_GEMINI_KEY
     st.sidebar.success("已讀取程式碼中設定的 Gemini Key！")
@@ -155,7 +152,7 @@ if fred_key:
 
         if st.button("✨ 產生 AI 總體經濟摘要"):
             if not gemini_key:
-                st.warning("請先在程式碼上方填入或在側邊欄輸入您的 Gemini API Key！")
+                st.warning("請先在左側邊欄輸入您的 Gemini API Key！")
             else:
                 try:
                     with st.spinner("Gemini 正在分析當前總體經濟數據並撰寫短評..."):
@@ -174,9 +171,10 @@ if fred_key:
                         請分析目前的通膨、貨幣政策利率環境以及殖利率曲線狀況，並給出投資人應注意的潛在總經風險。語氣需專業、客觀。
                         """
 
+                        # 使用更新後的 gemini-3.8-flash 模型[cite: 5]
                         client = genai.Client(api_key=gemini_key)
                         response = client.models.generate_content(
-                            model='gemini-2.5-flash',
+                            model='gemini-3.8-flash',
                             contents=prompt
                         )
                         st.session_state.ai_summary = response.text
@@ -196,4 +194,4 @@ if fred_key:
     except Exception as e:
         st.error(f"數據讀取失敗，請確認 FRED API Key 是否正確或網路連線是否正常。錯誤訊息: {e}")
 else:
-    st.info("👈 請在程式碼上方填入您的 API Key，或在左側邊欄輸入以開啟儀表板。")
+    st.info("👈 請在左側邊欄輸入您的 FRED API Key 以開啟儀表板。")
