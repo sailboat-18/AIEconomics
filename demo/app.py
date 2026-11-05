@@ -4,26 +4,51 @@ import plotly.express as px
 import yfinance as yf
 from fredapi import Fred
 from datetime import datetime
+from google import genai  # Google GenAI SDK
+
+# =====================================================================
+# 🌟 【API Key 快速填入區】你可以直接把金鑰貼在下方對應的引號裡！
+# =====================================================================
+# ⬇️ 貼上你的 FRED API Key (例如: "abc123xyz...")
+HARDCODED_FRED_KEY = "" 
+
+# ⬇️ 貼上你的 Google AI Studio / Gemini API Key (例如: "AIzaSy...")
+HARDCODED_GEMINI_KEY = ""
+# =====================================================================
+
 
 # 頁面基本配置
 st.set_page_config(page_title="總體經濟與金融即時儀表板", layout="wide")
 st.title("🌐 全球總體經濟與金融指標即時儀表板")
 
-# 側邊欄：輸入 API Key 與刷新控制
+# 側邊欄：設定與金鑰讀取邏輯
 st.sidebar.header("⚙️ 設定與金鑰")
 
-# 優先使用 Streamlit Secrets，若無則讓學生在側邊欄輸入
-if "FRED_API_KEY" in st.secrets:
+# 1. 取得 FRED Key (優先順序：程式上方寫死 > Streamlit Secrets > 側邊欄輸入)
+if HARDCODED_FRED_KEY:
+    fred_key = HARDCODED_FRED_KEY
+    st.sidebar.success("已讀取程式碼中設定的 FRED Key！")
+elif "FRED_API_KEY" in st.secrets:
     fred_key = st.secrets["FRED_API_KEY"]
-    st.sidebar.success("已自動讀取 Secrets 中的 API Key！")
+    st.sidebar.success("已自動讀取 Secrets 中的 FRED Key！")
 else:
-    fred_key = st.sidebar.text_input("請輸入你的 FRED API Key:", type="password")
+    fred_key = st.sidebar.text_input("請輸入 FRED API Key:", type="password")
+
+# 2. 取得 Gemini Key (優先順序：程式上方寫死 > Streamlit Secrets > 側邊欄輸入)
+if HARDCODED_GEMINI_KEY:
+    gemini_key = HARDCODED_GEMINI_KEY
+    st.sidebar.success("已讀取程式碼中設定的 Gemini Key！")
+elif "GEMINI_API_KEY" in st.secrets:
+    gemini_key = st.secrets["GEMINI_API_KEY"]
+    st.sidebar.success("已自動讀取 Secrets 中的 Gemini Key！")
+else:
+    gemini_key = st.sidebar.text_input("請輸入 Gemini API Key:", type="password")
 
 if st.sidebar.button("手動刷新數據"):
     st.cache_data.clear()
     st.sidebar.success("快取已清除，正在重新載入...")
 
-# 1. 抓取 FRED 數據 (新增 2 年期美債 DGS2，並計算利差)
+# 1. 抓取 FRED 數據
 @st.cache_data(ttl=3600)
 def get_fred_data(api_key):
     fred = Fred(api_key=api_key)
@@ -36,8 +61,6 @@ def get_fred_data(api_key):
         "日本10年期公債殖利率": fred.get_series("IRLTLT01JPM156N")
     }
     df = pd.DataFrame(data).ffill().tail(365)
-    
-    # 計算 10 年期減去 2 年期美債殖利率利差
     df["美債殖利率利差 (10Y-2Y)"] = df["10年期美債殖利率"] - df["2年期美債殖利率"]
     return df
 
@@ -74,14 +97,14 @@ if fred_key:
 
         st.sidebar.info(f"數據最後載入時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # 🚨 檢查最新美債利差是否倒掛 (< 0) 並顯示警示燈號
+        # 🚨 檢查最新美債利差是否倒掛 (< 0)
         latest_spread = macro_df["美債殖利率利差 (10Y-2Y)"].dropna().iloc[-1]
         if latest_spread < 0:
             st.error(f"🚨 **【殖利率倒掛警示】** 當前 10 年期與 2 年期美債殖利率利差為 **{latest_spread:.2f}%**（小於 0）。歷史經驗顯示，倒掛通常是經濟衰退的重要領先指標，請留意市場風險！")
         else:
             st.success(f"✅ **【殖利率正常】** 當前 10 年期與 2 年期美債殖利率利差為 **{latest_spread:.2f}%**（正常正斜率）。")
 
-        # 第一區塊：核心 KPI 卡片 (改為 6 個欄位)
+        # 第一區塊：核心 KPI 卡片
         st.subheader("📊 關鍵總體經濟指標 (FRED)")
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         
@@ -119,12 +142,49 @@ if fred_key:
         with tab2:
             macro_choice = st.selectbox("選擇總體經濟指標：", macro_df.columns, key="macro_select")
             fig2 = px.line(macro_df, y=macro_choice, title=f"{macro_choice} 近一年走勢", labels={"value": "數值", "Date": "日期"})
-            
-            # 如果選擇的是利差，可以額外畫一條 0 軸參考線讓圖表更直覺
             if macro_choice == "美債殖利率利差 (10Y-2Y)":
                 fig2.add_hline(y=0, line_dash="dash", line_color="red", annotation_text="倒掛分界線 (0%)")
-                
             st.plotly_chart(fig2, use_container_width=True)
+
+        # 第三區塊：AI 總體經濟摘要生成器
+        st.write("---")
+        st.subheader("🤖 AI 智慧總經短評")
+        
+        if "ai_summary" not in st.session_state:
+            st.session_state.ai_summary = ""
+
+        if st.button("✨ 產生 AI 總體經濟摘要"):
+            if not gemini_key:
+                st.warning("請先在程式碼上方填入或在側邊欄輸入您的 Gemini API Key！")
+            else:
+                try:
+                    with st.spinner("Gemini 正在分析當前總體經濟數據並撰寫短評..."):
+                        latest_fed_rate = macro_df["聯邦基金利率"].dropna().iloc[-1]
+                        latest_unemployment = macro_df["美國失業率"].dropna().iloc[-1]
+                        
+                        prompt = f"""
+                        你是一位專業的華爾街總體經濟分析師。請根據以下最新的美國經濟數據，撰寫一份約 200 字的專業總體經濟短評：
+                        - CPI 物價指數: {latest_cpi:.1f}
+                        - 聯邦基金利率: {latest_fed_rate:.2f}%
+                        - 美國失業率: {latest_unemployment:.1f}%
+                        - 10年期美債殖利率: {latest_rate:.2f}%
+                        - 2年期美債殖利率: {latest_2y:.2f}%
+                        - 10Y-2Y 美債殖利率利差: {latest_spread:.2f}% (小於0代表倒掛)
+
+                        請分析目前的通膨、貨幣政策利率環境以及殖利率曲線狀況，並給出投資人應注意的潛在總經風險。語氣需專業、客觀。
+                        """
+
+                        client = genai.Client(api_key=gemini_key)
+                        response = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=prompt
+                        )
+                        st.session_state.ai_summary = response.text
+                except Exception as e:
+                    st.error(f"AI 生成失敗，請確認 Gemini API Key 是否正確。錯誤訊息: {e}")
+
+        if st.session_state.ai_summary:
+            st.info(st.session_state.ai_summary)
 
         # 附加功能：允許下載數據
         with st.expander("📥 檢視與下載原始數據"):
@@ -136,4 +196,4 @@ if fred_key:
     except Exception as e:
         st.error(f"數據讀取失敗，請確認 FRED API Key 是否正確或網路連線是否正常。錯誤訊息: {e}")
 else:
-    st.info("👈 請在左側輸入您的 FRED API Key 以開啟儀表板。")
+    st.info("👈 請在程式碼上方填入您的 API Key，或在左側邊欄輸入以開啟儀表板。")
